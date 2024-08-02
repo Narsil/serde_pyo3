@@ -233,8 +233,9 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     // represent tuples more efficiently by omitting the length, since tuple
     // means that the corresponding `Deserialize implementation will know the
     // length without needing to look at the serialized data.
-    fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple> {
-        self.serialize_seq(Some(len))
+    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple> {
+        self.output += "(";
+        Ok(self)
     }
 
     // Tuple structs look just like sequences in JSON.
@@ -243,7 +244,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         _name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeTupleStruct> {
-        self.serialize_seq(Some(len))
+        self.serialize_tuple(len)
     }
 
     // Tuple variants are represented in JSON as `{ NAME: [DATA...] }`. Again
@@ -545,4 +546,56 @@ fn test_enum() {
     let s = E::Struct { a: 1 };
     let expected = r#"Struct(a=1)"#;
     assert_eq!(to_string(&s).unwrap(), expected);
+}
+
+#[test]
+fn test_enum_flatten() {
+    #[derive(Serialize)]
+    #[serde(untagged)]
+    enum E {
+        Unit,
+        Newtype(u32),
+        Tuple(u32, u32),
+        Struct { a: u32 },
+    }
+
+    let u = E::Unit;
+    let expected = r#"None"#;
+    assert_eq!(to_string(&u).unwrap(), expected);
+
+    let n = E::Newtype(1);
+    let expected = r#"1"#;
+    assert_eq!(to_string(&n).unwrap(), expected);
+
+    let t = E::Tuple(1, 2);
+    let expected = r#"(1, 2)"#;
+    assert_eq!(to_string(&t).unwrap(), expected);
+
+    let s = E::Struct { a: 1 };
+    let expected = r#"E(a=1)"#;
+    assert_eq!(to_string(&s).unwrap(), expected);
+}
+
+#[test]
+fn test_struct_tagged() {
+    #[derive(Serialize)]
+    #[serde(untagged)]
+    enum E {
+        A(A),
+    }
+
+    #[derive(Serialize)]
+    #[serde(tag = "type")]
+    struct A {
+        a: bool,
+        b: usize,
+    }
+
+    let u = A { a: true, b: 1 };
+    let expected = r#"A(type="A", a=True, b=1)"#;
+    assert_eq!(to_string(&u).unwrap(), expected);
+
+    let u = E::A(A { a: true, b: 1 });
+    let expected = r#"A(type="A", a=True, b=1)"#;
+    assert_eq!(to_string(&u).unwrap(), expected);
 }
